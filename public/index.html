@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WebRTC Пространство</title>
+    <style>
+        :root {
+            --bg-color: #0f0f11;
+            --panel-bg: #16161a;
+            --accent-color: #5865f2;
+            --accent-hover: #4752c4;
+            --text-color: #f2f3f5;
+            --text-muted: #96989d;
+            --border-color: #2f3136;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        /* Блок авторизации */
+        #auth-block {
+            background: var(--panel-bg);
+            padding: 30px;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            border: 1px solid var(--border-color);
+            margin: 20px;
+        }
+
+        #auth-block h2 {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        input, select, button {
+            width: 100%;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background: #202225;
+            color: var(--text-color);
+            font-size: 15px;
+            outline: none;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--accent-color);
+        }
+
+        button {
+            background: var(--accent-color);
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: var(--accent-hover);
+        }
+
+        button.active {
+            background: #ed4245;
+        }
+
+        /* Главный интерфейс приложения */
+        #app-block {
+            display: none; /* Включается из JS при коннекте */
+            width: 100%;
+            height: 100vh;
+            flex-direction: row;
+        }
+
+        /* Боковая панель */
+        .sidebar {
+            width: 260px;
+            background: var(--panel-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .room-info {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: bold;
+            font-size: 18px;
+            text-align: center;
+        }
+
+        #user-list {
+            padding: 15px;
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+
+        .user-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 5px;
+            background: rgba(255,255,255,0.02);
+            transition: background 0.2s;
+        }
+
+        .user-status-dot {
+            width: 10px;
+            height: 10px;
+            background: #43b581;
+            border-radius: 50%;
+            margin-right: 10px;
+            transition: box-shadow 0.2s, background 0.2s;
+        }
+
+        /* Анимация свечения говорящего участника */
+        .user-item.speaking .user-status-dot {
+            background: #5865f2;
+            box-shadow: 0 0 12px #5865f2, 0 0 4px #5865f2;
+        }
+
+        /* Центральная рабочая зона */
+        .main-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        /* Панель управления стримами и аудио */
+        .controls-bar {
+            background: var(--panel-bg);
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .control-btn-wrapper {
+            width: auto;
+            min-width: 160px;
+        }
+
+        .filter-settings {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: #202225;
+            padding: 6px 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .filter-settings select {
+            width: 140px;
+            padding: 6px;
+            font-size: 13px;
+        }
+
+        #slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            color: var(--text-muted);
+            transition: opacity 0.2s;
+        }
+
+        #noise-threshold-slider {
+            width: 100px;
+            cursor: pointer;
+        }
+
+        /* РЕЗИНОВАЯ СЕТКА СТРИМОВ (Защита от мобильных искажений) */
+        #screens-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
+            width: 100%;
+            padding: 20px;
+            box-sizing: border-box;
+            flex-grow: 1;
+            overflow-y: auto;
+            align-content: start;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            background-color: #111214;
+            border-radius: 8px;
+            overflow: hidden;
+            aspect-ratio: 16 / 9; /* Фиксирует пропорции бокса, убирая дерганье верстки */
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            border: 1px solid var(--border-color);
+        }
+
+        .video-container video {
+            width: 100%;
+            height: 100%;
+            display: block;
+            object-fit: cover; /* Сохраняет пропорции видео без растягивания лица */
+        }
+
+        .video-label {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            backdrop-filter: blur(4px);
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .fullscreen-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            z-index: 2;
+            width: auto;
+        }
+
+        /* Нижний текстовый чат */
+        .chat-area {
+            height: 180px;
+            background: var(--panel-bg);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        #messages-box {
+            flex-grow: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .msg {
+            max-width: 80%;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            word-break: break-word;
+            line-height: 1.4;
+        }
+
+        .msg.me {
+            background: var(--accent-color);
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+
+        .msg.other {
+            background: #2f3136;
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+        }
+
+        .msg-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 3px;
+            font-weight: bold;
+        }
+
+        .msg.sys {
+            background: transparent;
+            color: var(--text-muted);
+            align-self: center;
+            font-style: italic;
+            font-size: 12px;
+        }
+
+        .chat-input-row {
+            display: flex;
+            padding: 10px 15px;
+            gap: 10px;
+            background: #202225;
+        }
+
+        .chat-input-row input {
+            flex-grow: 1;
+        }
+
+        .chat-input-row button {
+            width: 90px;
+        }
+
+        /* Контейнер для аудио-тегов (скрыт) */
+        #remote-audios {
+            display: none;
+        }
+
+        /* АДАПТИВНОСТЬ ПОД МОБИЛЬНЫЕ ЭКРАНЫ (Менее 768px) */
+        @media (max-width: 768px) {
+            #app-block {
+                flex-direction: column; /* Переключаем сайдбар наверх/вниз */
+            }
+
+            .sidebar {
+                width: 100%;
+                height: 130px;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+            }
+
+            .room-info {
+                padding: 10px;
+                font-size: 15px;
+            }
+
+            #user-list {
+                display: flex;
+                gap: 10px;
+                overflow-x: auto;
+                overflow-y: hidden;
+                padding: 10px;
+            }
+
+            .user-item {
+                margin-bottom: 0;
+                flex-shrink: 0;
+                padding: 6px 12px;
+            }
+
+            .controls-bar {
+                padding: 10px;
+                gap: 10px;
+                justify-content: space-between;
+            }
+
+            .control-btn-wrapper {
+                flex-grow: 1;
+                min-width: 130px;
+            }
+
+            .filter-settings {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            #screens-grid {
+                grid-template-columns: 1fr; /* На мобилках видео встают строго в один столбец */
+                padding: 10px;
+                gap: 10px;
+            }
+
+            .video-container {
+                aspect-ratio: 4 / 3; /* Смартфонам вертикально удобнее пропорция 4:3 */
+            }
+
+            .chat-area {
+                height: 140px;
+            }
+        }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+    <div id="auth-block">
+        <h2>Вход в пространство</h2>
+        <div class="form-group">
+            <label for="username-input">Ваш никнейм</label>
+            <input type="text" id="username-input" placeholder="Введите имя..." autocomplete="off">
+        </div>
+        <div class="form-group">
+            <label for="room-select">Выберите комнату</label>
+            <select id="room-select">
+                <option value="Общая Игровая 🎮">Общая Игровая 🎮</option>
+                <option value="Комната Отдыха ☕">Комната Отдыха ☕</option>
+                <option value="Секретная Админка 🤫">Секретная Админка 🤫</option>
+            </select>
+        </div>
+        <div class="form-group" id="password-wrapper" style="display: none;">
+            <label for="room-password">Пароль от Админки</label>
+            <input type="password" id="room-password" placeholder="Пароль...">
+        </div>
+        <button id="login-btn">Присоединиться</button>
+    </div>
+
+    <div id="app-block">
+        <div class="sidebar">
+            <div class="room-info" id="room-title">Загрузка...</div>
+            <div id="user-list"></div>
+        </div>
+
+        <div class="main-content">
+            <div class="controls-bar">
+                <div class="control-btn-wrapper">
+                    <button id="mute-btn">🎙️ Микрофон: ВКЛ</button>
+                </div>
+                <div class="control-btn-wrapper">
+                    <button id="screen-btn">🖥️ Экран</button>
+                </div>
+
+                <div class="filter-settings">
+                    <select id="noise-mode-select">
+                        <option value="gate">Noise Gate (Базовый)</option>
+                        <option value="aggressive">Агрессивный (Клики)</option>
+                        <option value="browser">Стандартный (Браузер)</option>
+                    </select>
+                    <div id="slider-container">
+                        <input type="range" id="noise-threshold-slider" min="0" max="100" value="25">
+                        <span id="slider-label">Порог: 25%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="screens-grid"></div>
+
+            <div class="chat-area">
+                <div id="messages-box"></div>
+                <div class="chat-input-row">
+                    <input type="text" id="text-input" placeholder="Напишите сообщение..." autocomplete="off">
+                    <button id="send-btn">Отправить</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="remote-audios"></div>
+
+    <script>
+        const socket = io();
+        let myName = "", myRoom = "", myId = "", localStream = null, screenStream = null;
+        let isMuted = false;
+
+        const peerConnections = {};
+        const screenSenders = {}; 
+
+        // Переменные аудио-процессинга студийного фильтра
+        let audioContext = null;
+        let audioPipelineDestination = null;
+        let noiseMode = "gate"; 
+        let gateThresholdValue = 0.015; 
+
+        const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+        // DOM элементы
+        const authBlock = document.getElementById('auth-block');
+        const appBlock = document.getElementById('app-block');
+        const usernameInput = document.getElementById('username-input');
+        const roomSelect = document.getElementById('room-select');
+        const passwordWrapper = document.getElementById('password-wrapper');
+        const roomPassword = document.getElementById('room-password');
+        const loginBtn = document.getElementById('login-btn');
+        const userListDiv = document.getElementById('user-list');
+        const messagesBox = document.getElementById('messages-box');
+        const textInput = document.getElementById('text-input');
+        const sendBtn = document.getElementById('send-btn');
+        const screensGrid = document.getElementById('screens-grid');
+
+        const muteBtn = document.getElementById('mute-btn');
+        const screenBtn = document.getElementById('screen-btn');
+        const noiseModeSelect = document.getElementById('noise-mode-select');
+        const noiseThresholdSlider = document.getElementById('noise-threshold-slider');
+        const sliderLabel = document.getElementById('slider-label');
+        const sliderContainer = document.getElementById('slider-container');
+
+        roomSelect.addEventListener('change', () => {
+            passwordWrapper.style.display = roomSelect.value === "Секретная Админка 🤫" ? "block" : "none";
+        });
+
+        loginBtn.addEventListener('click', async () => {
+            const name = usernameInput.value.trim();
+            if(!name) return alert("Введите имя!");
+
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true }, 
+                    video: false 
+                });
+                
+                myName = name;
+                myRoom = roomSelect.value;
+                
+                socket.emit('join-room', { username: myName, room: myRoom, password: roomPassword.value });
+            } catch (err) {
+                alert("Ошибка доступа к микрофону!");
+            }
+        });
+
+        socket.on('auth-error', (msg) => alert(msg));
+
+        socket.on('room-joined', async ({ existingUsers, yourId }) => {
+            authBlock.style.display = 'none';
+            appBlock.style.display = 'flex';
+            document.getElementById('room-title').textContent = myRoom;
+            myId = yourId;
+
+            // Инициализация продвинутого Web Audio API фильтра звука
+            setupAdvancedAudioPipeline();
+
+            for (let user of existingUsers) {
+                await makeCall(user.id);
+            }
+        });
+
+        socket.on('user-list-update', (users) => {
+            userListDiv.innerHTML = users.map(user => `
+                <div class="user-item" id="user-${user.id}">
+                    <div class="user-status-dot"></div>
+                    <span>${user.username} ${user.id === myId ? '(Вы)' : ''}</span>
+                </div>
+            `).join('');
+        });
+
+        function sendMessage() {
+            const text = textInput.value.trim();
+            if(text) { socket.emit('send-message', text); textInput.value = ""; }
+        }
+        sendBtn.addEventListener('click', sendMessage);
+        textInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') sendMessage(); });
+
+        socket.on('new-message', (data) => {
+            const isMe = data.user === myName;
+            const msgHtml = `<div class="msg ${isMe ? 'me' : 'other'}">${!isMe ? `<div class="msg-meta">${data.user}</div>` : ''}<div>${data.text}</div></div>`;
+            messagesBox.insertAdjacentHTML('beforeend', msgHtml);
+            messagesBox.scrollTop = messagesBox.scrollHeight;
+        });
+
+        socket.on('sys-message', (text) => {
+            messagesBox.insertAdjacentHTML('beforeend', `<div class="msg sys">${text}</div>`);
+            messagesBox.scrollTop = messagesBox.scrollHeight;
+        });
+
+        muteBtn.addEventListener('click', () => {
+            isMuted = !isMuted;
+            localStream.getAudioTracks()[0].enabled = !isMuted;
+            muteBtn.textContent = isMuted ? "🔇 Микрофон: ВЫКЛ" : "🎙️ Микрофон: ВКЛ";
+            muteBtn.classList.toggle('active', isMuted);
+        });
+
+        // ================= ПРОФЕССИОНАЛЬНЫЙ АУДИО-ПРОЦЕССИНГ (ШУМОПОДАВЛЕНИЕ) =================
+        function setupAdvancedAudioPipeline() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            const source = audioContext.createMediaStreamSource(localStream);
+            audioPipelineDestination = audioContext.createMediaStreamDestination();
+
+            const highpassFilter = audioContext.createBiquadFilter();
+            highpassFilter.type = "highpass";
+            highpassFilter.frequency.value = 100; 
+
+            const lowpassFilter = audioContext.createBiquadFilter();
+            lowpassFilter.type = "lowpass";
+            lowpassFilter.frequency.value = 3500;
+
+            const gateNode = audioContext.createScriptProcessor(2048, 1, 1);
+            gateNode.onaudioprocess = function(e) {
+                const input = e.inputBuffer.getChannelData(0);
+                const output = e.outputBuffer.getChannelData(0);
+                
+                let sum = 0;
+                for (let i = 0; i < input.length; i++) {
+                    sum += input[i] * input[i];
+                }
+                const rms = Math.sqrt(sum / input.length);
+                
+                let allowAudio = true;
+                if (noiseMode === "gate" || noiseMode === "aggressive") {
+                    allowAudio = rms > gateThresholdValue;
+                }
+
+                for (let i = 0; i < input.length; i++) {
+                    output[i] = allowAudio ? input[i] : 0;
+                }
+            };
+
+            source.connect(highpassFilter);
+            highpassFilter.connect(lowpassFilter);
+            lowpassFilter.connect(gateNode);
+
+            const dynamicGain = audioContext.createGain();
+            gateNode.connect(dynamicGain);
+
+            window.updateAudioFilters = () => {
+                dynamicGain.disconnect();
+                source.disconnect();
+                highpassFilter.disconnect();
+                lowpassFilter.disconnect();
+
+                if (noiseMode === "browser") {
+                    source.connect(audioPipelineDestination);
+                } else if (noiseMode === "gate") {
+                    source.connect(highpassFilter);
+                    highpassFilter.connect(gateNode);
+                    gateNode.connect(audioPipelineDestination);
+                } else if (noiseMode === "aggressive") {
+                    source.connect(highpassFilter);
+                    highpassFilter.connect(lowpassFilter);
+                    lowpassFilter.connect(gateNode);
+                    gateNode.connect(audioPipelineDestination);
+                }
+            };
+
+            window.updateAudioFilters();
+            monitorVoiceActivity(audioPipelineDestination.stream, myId);
+        }
+
+        noiseModeSelect.addEventListener('change', (e) => {
+            noiseMode = e.target.value;
+            sliderContainer.style.opacity = noiseMode === "browser" ? "0.3" : "1";
+            sliderContainer.style.pointerEvents = noiseMode === "browser" ? "none" : "auto";
+            if (window.updateAudioFilters) window.updateAudioFilters();
+        });
+
+        noiseThresholdSlider.addEventListener('input', (e) => {
+            const percentage = e.target.value;
+            sliderLabel.textContent = `Порог: ${percentage}%`;
+            gateThresholdValue = (percentage / 100) * 0.055 + 0.001;
+        });
+
+        // ================= АНАЛИЗАТОР ГОЛОСА (СВЕЧЕНИЕ НИКОВ) =================
+        function monitorVoiceActivity(stream, socketId) {
+            const analyser = audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+            function checkVolume() {
+                if (!peerConnections[socketId] && socketId !== myId) return;
+
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) { sum += dataArray[i]; }
+                let average = sum / dataArray.length;
+
+                const userElement = document.getElementById(`user-${socketId}`);
+                if (userElement) {
+                    if (average > 4 && (!isMuted || socketId !== myId)) {
+                        userElement.classList.add('speaking');
+                    } else {
+                        userElement.classList.remove('speaking');
+                    }
+                }
+
+                requestAnimationFrame(checkVolume);
+            }
+            checkVolume();
+        }
+
+        // ================= ДЕМОНСТРАЦИЯ ЭКРАНА =================
+        screenBtn.addEventListener('click', async () => {
+            if (screenStream) {
+                stopScreenShare();
+            } else {
+                try {
+                    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+                    const videoTrack = screenStream.getVideoTracks()[0];
+
+                    addVideoElement(socket.id, `${myName} (Экран)`, screenStream);
+
+                    for (let id in peerConnections) {
+                        const sender = peerConnections[id].addTrack(videoTrack, screenStream);
+                        screenSenders[id] = sender; 
+                        makeCall(id); 
+                    }
+
+                    videoTrack.onended = () => { stopScreenShare(); };
+                    screenBtn.textContent = "🛑 Стоп Экран";
+                    screenBtn.classList.add('active');
+                } catch (err) { console.error(err); }
+            }
+        });
+
+        function stopScreenShare() {
+            if(!screenStream) return;
+            screenStream.getTracks().forEach(track => track.stop());
+            screenStream = null;
+            removeVideoElement(socket.id);
+            
+            for (let id in peerConnections) {
+                if (screenSenders[id]) {
+                    try { peerConnections[id].removeTrack(screenSenders[id]); } catch(e){}
+                    delete screenSenders[id];
+                }
+                makeCall(id); 
+            }
+            socket.emit('stop-screen-share'); 
+            screenBtn.textContent = "🖥️ Экран";
+            screenBtn.classList.remove('active');
+        }
+
+        socket.on('peer-stopped-screen', (senderId) => { removeVideoElement(senderId); });
+
+        // ================= WebRTC СОЕДИНЕНИЕ И ФИКС ОБРАБОТКИ ТРЕКОВ =================
+        async function makeCall(targetSocketId) {
+            const pc = createPeerConnection(targetSocketId);
+            if (pc.signalingState !== "stable") return;
+            
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            socket.emit('webrtc-signal', { to: targetSocketId, signal: { sdp: pc.localDescription } });
+        }
+
+        function createPeerConnection(targetSocketId) {
+            if (peerConnections[targetSocketId]) return peerConnections[targetSocketId];
+
+            const pc = new RTCPeerConnection(rtcConfig);
+            peerConnections[targetSocketId] = pc;
+
+            const processedTrack = audioPipelineDestination.stream.getAudioTracks()[0];
+            pc.addTrack(processedTrack, audioPipelineDestination.stream);
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('webrtc-signal', { to: targetSocketId, signal: { candidate: event.candidate } });
+                }
+            };
+
+            // Прием входящих треков (Аудио / Видео)
+            pc.ontrack = (event) => {
+                if (event.track.kind === 'video') {
+                    // ФИКС: Собираем чистый поток из трека «на лету» во избежание бага черного экрана
+                    const videoStream = new MediaStream([event.track]);
+                    addVideoElement(targetSocketId, `Стрим игрока`, videoStream);
+                } else {
+                    let audioEl = document.getElementById(`audio-${targetSocketId}`);
+                    if (!audioEl) {
+                        audioEl = document.createElement('audio');
+                        audioEl.id = `audio-${targetSocketId}`;
+                        audioEl.autoplay = true;
+                        document.getElementById('remote-audios').appendChild(audioEl);
+                    }
+                    audioEl.srcObject = event.streams[0];
+                    monitorVoiceActivity(event.streams[0], targetSocketId);
+                }
+            };
+
+            return pc;
+        }
+
+        socket.on('webrtc-signal', async ({ from, signal }) => {
+            const pc = createPeerConnection(from);
+            if (signal.sdp) {
+                await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+                if (signal.sdp.type === 'offer') {
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    socket.emit('webrtc-signal', { to: from, signal: { sdp: pc.localDescription } });
+                }
+            } else if (signal.candidate) {
+                try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); } catch (e) {}
+            }
+        });
+
+        socket.on('peer-left', (socketId) => {
+            if (peerConnections[socketId]) { peerConnections[socketId].close(); delete peerConnections[socketId]; }
+            const audioEl = document.getElementById(`audio-${socketId}`);
+            if (audioEl) audioEl.remove();
+            removeVideoElement(socketId);
+        });
+
+        // Создание HTML-контейнеров для плееров
+        function addVideoElement(id, labelText, stream) {
+            if(document.getElementById(`video-box-${id}`)) return;
+            const container = document.createElement('div');
+            container.id = `video-box-${id}`;
+            container.className = 'video-container';
+            
+            const video = document.createElement('video');
+            video.autoplay = true;
+            video.playsInline = true;
+            video.srcObject = stream;
+            
+            const label = document.createElement('div');
+            label.className = 'video-label';
+            label.textContent = labelText;
+
+            const fsBtn = document.createElement('button');
+            fsBtn.className = 'fullscreen-btn';
+            fsBtn.innerHTML = '⛶';
+            fsBtn.onclick = () => {
+                if (video.requestFullscreen) video.requestFullscreen();
+                else if (video.webkitRequestFullscreen) video.webkitRequestFullscreen();
+            };
+
+            container.appendChild(video);
+            container.appendChild(label);
+            container.appendChild(fsBtn);
+            screensGrid.appendChild(container);
+        }
+
+        function removeVideoElement(id) {
+            const el = document.getElementById(`video-box-${id}`);
+            if(el) el.remove();
+        }
+    </script>
+</body>
+</html>
